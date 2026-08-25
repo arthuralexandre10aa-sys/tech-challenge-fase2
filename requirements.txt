@@ -1,0 +1,20 @@
+# Acesso a dados (Base dos Dados / BigQuery)
+basedosdados>=2.0.0
+google-cloud-bigquery>=3.20.0
+google-cloud-storage>=2.16.0
+google-cloud-pubsub>=2.21.0
+
+# Processamento (Silver / Gold)
+pyspark>=3.5.0
+pandas>=2.2.0
+pyarrow>=15.0.0
+
+# Orquestração
+apache-airflow>=2.9.0
+
+# Utilitários
+python-dotenv>=1.0.0
+loguru>=0.7.2
+
+# Testes
+pytest>=8.0.0
