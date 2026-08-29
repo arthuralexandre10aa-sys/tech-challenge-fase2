@@ -62,26 +62,66 @@ A solução é implementada em **Google Cloud Platform (GCP)** — a escolha
 é justificada na seção 6 — e segue a **Arquitetura Medalhão**:
 
 ### Ingestão Batch
-Processamento diário (orquestrado pelo Airflow/Cloud Composer) para as
-fontes de baixa frequência de mudança: metas educacionais, dados de
-município/UF e o indicador oficial de alfabetização, extraídos
+Processamento diário (orquestrado pelo Airflow) para as fontes de baixa
+frequência de mudança: `uf` e `municipio` (dimensões), o indicador
+oficial de alfabetização e as metas (Brasil/UF/Município), extraídos
 diretamente das tabelas públicas da Base dos Dados no BigQuery.
+
+O **Indicador Criança Alfabetizada** não existe como uma tabela pronta
+na Base dos Dados — ele é **calculado** a partir da tabela `alunos`
+(microdado por aluno, com colunas `alfabetizado` e `peso_aluno`). A
+ingestão já faz essa agregação direto na query SQL (evitando baixar
+milhões de linhas de aluno para a máquina local):
+
+```sql
+SELECT
+    id_municipio,
+    ano,
+    AVG(proficiencia) AS proficiencia_media,
+    ROUND(
+        100 * SUM(CASE WHEN alfabetizado = '1' THEN peso_aluno ELSE 0 END)
+            / SUM(peso_aluno),
+        4
+    ) AS percentual_alfabetizado
+FROM `basedosdados.br_inep_avaliacao_alfabetizacao.alunos`
+GROUP BY id_municipio, ano
+```
 
 ### Ingestão Streaming
 Um produtor (`streaming/producer_simulator.py`) simula eventos quase em
 tempo real — atualização de indicadores, novas medições de desempenho e
 mudanças de metas — publicados em um tópico **Pub/Sub**. Um consumidor
-grava micro-lotes (60s ou 500 mensagens) continuamente na camada Bronze.
+(`src/bronze/ingest_streaming.py`) grava micro-lotes (60s ou 500
+mensagens) continuamente na camada Bronze.
 
 ### Bronze — Raw Data
 Dados brutos, sem transformação, armazenados em **Parquet** no GCS,
-particionados por data de ingestão, preservando o histórico completo.
+particionados por data de ingestão (`dt_ingestao=AAAA-MM-DD`),
+preservando o histórico completo de todas as execuções.
 
 ### Silver — Dados Tratados
 Job **PySpark** que aplica limpeza, tratamento de valores ausentes,
-padronização de nomes/tipos, normalização de chaves e **integração**
-entre as bases (join município + UF + indicador + metas), seguido das
-checagens de qualidade de dados.
+padronização de nomes/tipos e **integração** entre as bases. Duas
+decisões de modelagem, descobertas a partir do schema real das tabelas:
+
+- A tabela `municipio` já traz as colunas `sigla_uf` e `nome_uf`
+  prontas — por isso a integração usa apenas `indicador + municipio +
+  meta`, sem precisar de um join adicional com a tabela `uf`.
+- A tabela de metas (`meta_alfabetizacao_municipio`) vem em formato
+  **largo** (uma coluna por ano-alvo: `meta_alfabetizacao_2024` ...
+  `meta_alfabetizacao_2030`). A Silver "desempilha" essas colunas para
+  o formato longo (`id_municipio`, `ano`, `meta_percentual`) antes de
+  integrar com o indicador via join em `(id_municipio, ano)`.
+
+Ao ler cada tabela da Bronze, a Silver considera apenas a **partição de
+ingestão mais recente** (`dt_ingestao`), já que a Bronze preserva o
+histórico completo de todas as execuções — sem esse filtro, reprocessar
+uma tabela duplicaria os registros.
+
+Como o Spark, por padrão, não sabe ler `gs://`, o projeto usa o
+[conector do GCS](https://github.com/GoogleCloudDataproc/hadoop-connectors)
+(`com.google.cloud.bigdataoss:gcs-connector`), autenticado com uma
+**conta de serviço** dedicada (chave JSON) — ver seção 11.
 
 ### Gold — Camada Analítica
 Três datasets prontos para consumo:
@@ -89,8 +129,8 @@ Três datasets prontos para consumo:
 - `gold_meta_vs_resultado`
 - `gold_evolucao_temporal_uf`
 
-Publicados em Parquet (GCS) e como tabelas no **BigQuery**, para consumo
-por dashboards, análises estatísticas e modelos de machine learning.
+Publicados em Parquet no GCS. Testados de ponta a ponta em um projeto
+GCP real (não apenas simulado localmente).
 
 ## 4. Diagrama e fluxo de dados
 
@@ -236,9 +276,13 @@ tech-challenge-fase2/
 ## 11. Como executar
 
 ### Pré-requisitos
-- Python 3.11+
-- Docker e Docker Compose (para o ambiente local de Airflow)
-- Conta de serviço GCP com acesso ao BigQuery público da Base dos Dados
+- Python 3.11+ (testado também em 3.9, com ressalvas de fim de vida)
+- Java 17 (necessário para o PySpark rodar localmente — no macOS,
+  `brew install openjdk@17`)
+- Um projeto GCP com billing habilitado, e as APIs de BigQuery, Cloud
+  Storage e Pub/Sub ativadas (`gcloud services enable ...`)
+- `gcloud auth login` + `gcloud auth application-default login`
+  configurados na sua máquina
 
 ### Setup
 
@@ -247,8 +291,44 @@ git clone <url-deste-repositorio>
 cd tech-challenge-fase2
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # preencher com suas credenciais/projeto GCP
+cp .env.example .env   # preencher com os IDs/nomes reais do seu projeto GCP
 ```
+
+Crie os 3 buckets (nomes globalmente únicos) e o tópico/subscrição de streaming:
+
+```bash
+gcloud storage buckets create gs://SEU-BUCKET-BRONZE --location=SUA-REGIAO
+gcloud storage buckets create gs://SEU-BUCKET-SILVER --location=SUA-REGIAO
+gcloud storage buckets create gs://SEU-BUCKET-GOLD --location=SUA-REGIAO
+gcloud pubsub topics create indicadores-alfabetizacao-eventos
+gcloud pubsub subscriptions create indicadores-alfabetizacao-sub \
+    --topic=indicadores-alfabetizacao-eventos
+```
+
+**Autenticação do Spark com o GCS**: o conector do GCS usado pelo
+PySpark (`gcs-connector`) não lida de forma confiável com Application
+Default Credentials fora do GCE — por isso o projeto usa uma **conta de
+serviço** dedicada:
+
+```bash
+gcloud iam service-accounts create alfabetizacao-spark \
+    --display-name="Spark local pipeline"
+gcloud projects add-iam-policy-binding SEU-PROJETO-ID \
+    --member="serviceAccount:alfabetizacao-spark@SEU-PROJETO-ID.iam.gserviceaccount.com" \
+    --role="roles/storage.admin"
+gcloud iam service-accounts keys create ~/gcp-spark-key.json \
+    --iam-account=alfabetizacao-spark@SEU-PROJETO-ID.iam.gserviceaccount.com
+```
+
+Depois, adicione ao `.env`:
+
+```
+GCP_SERVICE_ACCOUNT_KEY=/caminho/absoluto/para/gcp-spark-key.json
+```
+
+> A chave JSON é uma credencial sensível — nunca commitar no Git (o
+> `.gitignore` já ignora `.env`; mantenha a chave fora da pasta do
+> projeto, como no exemplo acima).
 
 ### Rodando a pipeline batch localmente
 
@@ -261,17 +341,26 @@ python -m src.gold.build_gold
 
 > Os scripts de Silver/Gold/Qualidade usam PySpark; rodando localmente,
 > uma `SparkSession` local (`master("local[*]")`) é suficiente — não é
-> necessário um cluster.
+> necessário um cluster. Na primeira execução, o Spark baixa o conector
+> do GCS via Maven (pode levar 1-2 minutos); nas seguintes, fica em cache.
 
 ### Simulando o streaming
 
+Em dois terminais separados (ambos com o `.venv` ativado):
+
 ```bash
-docker compose up pubsub-emulator -d
-python streaming/producer_simulator.py --eventos-por-segundo 5 &
+# terminal 1 — consumidor (fica rodando até você interromper com Ctrl+C)
 python -m src.bronze.ingest_streaming
+
+# terminal 2 — produtor de eventos simulados
+python -m streaming.producer_simulator --eventos-por-segundo 5 --duracao-segundos 90
 ```
 
-### Subindo o Airflow local
+> Repare no `-m streaming.producer_simulator` (sintaxe de módulo, com
+> ponto) — rodar `python streaming/producer_simulator.py` diretamente
+> falha com `ModuleNotFoundError: No module named 'src'`.
+
+### Subindo o Airflow local (opcional)
 
 ```bash
 docker compose up airflow
