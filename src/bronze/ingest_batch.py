@@ -31,10 +31,31 @@ INGESTION_DATE = date.today().isoformat()
 
 
 def extract_table(table_key: str) -> pd.DataFrame:
-    """Executa a query na Base dos Dados via BigQuery e retorna um DataFrame."""
+    """Executa a query na Base dos Dados via BigQuery e retorna um DataFrame.
+
+    A tabela 'alunos' (Indicador Criança Alfabetizada) é microdado por
+    aluno — agregamos direto na query em (id_municipio, ano) para chegar
+    no indicador (% de alfabetizados, ponderado por peso_aluno, e a
+    proficiência média), em vez de baixar milhões de linhas de aluno.
+    """
     full_table = SOURCE_TABLES[table_key]
-    dataset_id, table_id = full_table.split(".", 1)[1].split(".")
-    query = f"SELECT * FROM `{full_table}`"
+
+    if table_key == "indicador_alfabetizacao":
+        query = f"""
+            SELECT
+                id_municipio,
+                ano,
+                AVG(proficiencia) AS proficiencia_media,
+                ROUND(
+                    100 * SUM(CASE WHEN alfabetizado = '1' THEN peso_aluno ELSE 0 END)
+                        / SUM(peso_aluno),
+                    4
+                ) AS percentual_alfabetizado
+            FROM `{full_table}`
+            GROUP BY id_municipio, ano
+        """
+    else:
+        query = f"SELECT * FROM `{full_table}`"
 
     df = bd.read_sql(query, billing_project_id=settings.bd_billing_project)
     return df

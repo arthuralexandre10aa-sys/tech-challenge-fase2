@@ -31,6 +31,11 @@ class Settings:
     pubsub_topic: str = os.getenv("PUBSUB_TOPIC", "indicadores-alfabetizacao-eventos")
     pubsub_subscription: str = os.getenv("PUBSUB_SUBSCRIPTION", "indicadores-alfabetizacao-sub")
 
+    # Chave de conta de serviço usada pelo Spark (via conector GCS) para
+    # autenticar em gs:// — necessária pois o modo APPLICATION_DEFAULT
+    # do conector não funciona de forma confiável fora do GCE.
+    gcp_service_account_key: str = os.getenv("GCP_SERVICE_ACCOUNT_KEY", "")
+
 
 settings = Settings()
 
@@ -39,10 +44,10 @@ settings = Settings()
 SOURCE_TABLES = {
     "uf": "basedosdados.br_bd_diretorios_brasil.uf",
     "municipio": "basedosdados.br_bd_diretorios_brasil.municipio",
-    "indicador_alfabetizacao": "basedosdados.br_mec_inep_saeb.indicador_crianca_alfabetizada",
-    "meta_alfabetizacao_brasil": "basedosdados.br_mec_pnld.meta_alfabetizacao_brasil",
-    "meta_alfabetizacao_uf": "basedosdados.br_mec_pnld.meta_alfabetizacao_uf",
-    "meta_alfabetizacao_municipio": "basedosdados.br_mec_pnld.meta_alfabetizacao_municipio",
+    "indicador_alfabetizacao": "basedosdados.br_inep_avaliacao_alfabetizacao.alunos",
+    "meta_alfabetizacao_brasil": "basedosdados.br_inep_avaliacao_alfabetizacao.meta_alfabetizacao_brasil",
+    "meta_alfabetizacao_uf": "basedosdados.br_inep_avaliacao_alfabetizacao.meta_alfabetizacao_uf",
+    "meta_alfabetizacao_municipio": "basedosdados.br_inep_avaliacao_alfabetizacao.meta_alfabetizacao_municipio",
 }
 
 # Colunas-chave usadas na normalização/join entre bases (camada Silver)

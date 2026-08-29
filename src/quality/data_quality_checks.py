@@ -78,8 +78,11 @@ def check_chave_relacionamento(df_filho: DataFrame, df_pai: DataFrame, key_cols:
     )
 
 
-def check_consistencia_percentuais(df: DataFrame, col: str) -> CheckResult:
-    invalidos = df.filter((F.col(col) < 0) | (F.col(col) > 100)).count()
+def check_consistencia_percentuais(df: DataFrame, col: str, tolerancia: float = 1e-6) -> CheckResult:
+    """Percentuais devem estar em [0, 100]. Uma pequena tolerância
+    absorve erro de arredondamento de ponto flutuante em agregações
+    (ex.: 100.000000000000014 resultante de uma divisão SUM/SUM)."""
+    invalidos = df.filter((F.col(col) < -tolerancia) | (F.col(col) > 100 + tolerancia)).count()
     return CheckResult(
         name=f"consistencia_{col}",
         passed=invalidos == 0,
@@ -114,7 +117,15 @@ def run_all(spark: SparkSession) -> list[CheckResult]:
 
 
 def main() -> None:
-    spark = SparkSession.builder.appName("quality_checks").getOrCreate()
+    spark = (
+        SparkSession.builder.appName("quality_checks")
+        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.21")
+        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+        .config("spark.hadoop.fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE")
+        .config("spark.hadoop.fs.gs.auth.service.account.json.keyfile", settings.gcp_service_account_key)
+        .getOrCreate()
+    )
     run_all(spark)
     spark.stop()
 

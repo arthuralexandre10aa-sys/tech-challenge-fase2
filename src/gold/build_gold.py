@@ -22,7 +22,15 @@ from src.utils.observability import track_job
 
 
 def get_spark() -> SparkSession:
-    return SparkSession.builder.appName("gold_alfabetizacao").getOrCreate()
+    return (
+        SparkSession.builder.appName("gold_alfabetizacao")
+        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.21")
+        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+        .config("spark.hadoop.fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE")
+        .config("spark.hadoop.fs.gs.auth.service.account.json.keyfile", settings.gcp_service_account_key)
+        .getOrCreate()
+    )
 
 
 def read_silver(spark: SparkSession) -> DataFrame:

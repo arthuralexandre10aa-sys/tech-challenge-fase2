@@ -19,6 +19,7 @@ import time
 from datetime import datetime, timezone
 
 import pandas as pd
+from google.api_core.exceptions import DeadlineExceeded, RetryError
 from google.cloud import pubsub_v1
 
 from loguru import logger
@@ -61,10 +62,15 @@ def run(max_runtime_seconds: int | None = None) -> None:
             if max_runtime_seconds and (time.time() - start_time) > max_runtime_seconds:
                 break
 
-            response = subscriber.pull(
-                request={"subscription": subscription_path, "max_messages": 100},
-                timeout=10,
-            )
+            try:
+                response = subscriber.pull(
+                    request={"subscription": subscription_path, "max_messages": 100},
+                    timeout=20,
+                )
+            except (DeadlineExceeded, RetryError):
+                # Normal quando não há mensagens suficientes chegando dentro
+                # do timeout — não é uma falha, apenas tenta de novo.
+                continue
 
             ack_ids = []
             for received in response.received_messages:
