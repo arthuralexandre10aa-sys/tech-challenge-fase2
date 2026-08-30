@@ -9,3 +9,4 @@ data/
 .DS_Store
 airflow/logs/
 airflow/airflow.db
+dashboard/gold_dashboard.html
