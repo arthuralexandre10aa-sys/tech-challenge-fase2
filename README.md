@@ -402,21 +402,3 @@ Este repositório segue o modelo **GitHub Flow**:
 - mensagens de commit seguem o padrão `tipo(escopo): descrição`, por
   exemplo `feat(bronze): adiciona ingestão batch da Base dos Dados` ou
   `fix(silver): corrige normalização de sigla_uf`.
-
-## 13. Roteiro do vídeo executivo
-
-Sugestão de roteiro para o vídeo de até 5 minutos (linguagem executiva,
-como se fosse para stakeholders/liderança):
-
-1. **(0:00–1:00) Problema de negócio** — por que a alfabetização até 2030
-   é uma prioridade nacional e por que dados fragmentados dificultam o
-   acompanhamento da meta.
-2. **(1:00–2:30) Arquitetura da solução** — mostrar o diagrama
-   (`architecture/diagram.md`), explicar a jornada Bronze → Silver → Gold
-   e a combinação batch + streaming em linguagem simples.
-3. **(2:30–3:30) Valor da pipeline** — como a camada Gold entrega,
-   de forma confiável e atualizada, indicadores por município,
-   comparação com metas e evolução temporal para tomada de decisão.
-4. **(3:30–4:30) Potencial de IA** — como os dados Gold viabilizam
-   modelos preditivos e identificação de municípios prioritários.
-5. **(4:30–5:00) Encerramento** — custo controlado (FinOps) e próximos passos.
