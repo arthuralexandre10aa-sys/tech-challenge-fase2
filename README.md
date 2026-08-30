@@ -266,6 +266,8 @@ tech-challenge-fase2/
 │       └── observability.py         # logging dos jobs
 ├── streaming/
 │   └── producer_simulator.py       # simulador de eventos em tempo quase real
+├── dashboard/
+│   └── build_dashboard.py          # gera um dashboard HTML a partir da camada Gold
 ├── airflow/
 │   └── dags/
 │       └── pipeline_alfabetizacao_dag.py
@@ -366,6 +368,19 @@ python -m streaming.producer_simulator --eventos-por-segundo 5 --duracao-segundo
 docker compose up airflow
 # acessar http://localhost:8080 (usuário/senha exibidos no log do container)
 ```
+
+### Gerando o dashboard da camada Gold
+
+Depois que a pipeline batch já rodou pelo menos uma vez (Bronze →
+Silver → Gold), rode:
+
+```bash
+python -m dashboard.build_dashboard
+```
+
+Isso lê os 3 datasets da camada Gold direto do bucket e gera um único
+arquivo HTML autocontido (gráficos embutidos, sem servidor) em
+`dashboard/gold_dashboard.html` — basta abrir no navegador.
 
 ### Rodando os testes
 
